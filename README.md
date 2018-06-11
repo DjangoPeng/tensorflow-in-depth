@@ -6,10 +6,6 @@
 
 ## 样章
 
-[序1](recommendation_preface_1.md)
-
-[序2](recommendation_preface_2.md)
-
 [推荐语](recommendations.md)
 
 [前言](preface.md)
