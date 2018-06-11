@@ -20,17 +20,12 @@
 
 ## 示例代码
 
-### 格式说明
-
-1. 第 3-7 章代码文件格式为 "章节_代码名称"，如3.6节线性回归最佳实践代码文件名为 "3.6\_best\_practice.py"。
-2. 第 9-11章代码（TODO @gclouding）
-
-### 代码
-
 [代码目录](code/)
+
+**说明：代码文件格式为 "章节_代码名称"，如3.6节线性回归最佳实践代码文件名为 "3.6\_best\_practice.py"。**
 
 ## 参考链接
 
 - [人民邮电出版社官方介绍](http://www.ptpress.com.cn/shopping/buy?bookId=d87d343a-66f0-4430-b48d-4d03273f8258)
-- [京东链接](http://item.jd.com/12349620.html)
+- [京东商城链接](http://item.jd.com/12349620.html)
 
