@@ -22,14 +22,16 @@ flags.DEFINE_integer("task_index", None,
                      "Worker task index, should be >= 0. task_index=0 is "
                      "the master worker task the performs the variable "
                      "initialization ")
+flags.DEFINE_integer("num_gpus", 0, "Total number of gpus for each machine."
+                     "If you don't use GPU, please set it to '0'")
 flags.DEFINE_integer("replicas_to_aggregate", None,
-                     "Number of replicas to aggregate before parameter update"
+                     "Number of replicas to aggregate before parameter update "
                      "is applied (For sync_replicas mode only; default: "
                      "num_workers)")
 flags.DEFINE_integer("hidden_units", 100,
                      "Number of units in the hidden layer of the NN")
 flags.DEFINE_integer("train_steps", 200,
-                     "Number of (global) training stePS to perform")
+                     "Number of (global) training steps to perform")
 flags.DEFINE_integer("batch_size", 100, "Training batch size")
 flags.DEFINE_float("learning_rate", 0.01, "Learning rate")
 flags.DEFINE_boolean("sync_replicas", False,
@@ -40,7 +42,7 @@ flags.DEFINE_string("ps_hosts","localhost:2222",
                     "Comma-separated list of hostname:port pairs")
 flags.DEFINE_string("worker_hosts", "localhost:2223,localhost:2224",
                     "Comma-separated list of hostname:port pairs")
-flags.DEFINE_string("job_name", None,"job name: worker or PS")
+flags.DEFINE_string("job_name", None, "job name: worker or ps")
 
 FLAGS = flags.FLAGS
 
@@ -53,29 +55,41 @@ def main(unused_argv):
 
   if FLAGS.job_name is None or FLAGS.job_name == "":
     raise ValueError("Must specify an explicit `job_name`")
-  if FLAGS.task_index is None or FLAGS.task_index =="":
+  if FLAGS.task_index is None or FLAGS.task_index == "":
     raise ValueError("Must specify an explicit `task_index`")
 
-  # 解析PS和worker的主机名列表
-  PS_spec = FLAGS.ps_hosts.split(",")
+  # 解析ps和worker的主机名列表
+  ps_spec = FLAGS.ps_hosts.split(",")
   worker_spec = FLAGS.worker_hosts.split(",")
 
   # 计算worker的数量
   num_workers = len(worker_spec)
 
   cluster = tf.train.ClusterSpec({
-      "PS": PS_spec,
+      "ps": ps_spec,
       "worker": worker_spec})
   
-  # 如果是PS，直接启动服务，并开始监听worker发起的请求
-  if FLAGS.job_name == "PS":
+  # 如果是ps，直接启动服务，并开始监听worker发起的请求
+  if FLAGS.job_name == "ps":
       server.join()
+
+  # 判断当前是否为chief worker的任务进程
+  is_chief = (FLAGS.task_index == 0)
+
+  if FLAGS.num_gpus > 0:
+    # 假设每台机器的 GPU 数量都相同时，为每台机器的每个 GPU 依次分配一个计算任务。
+    gpu = (FLAGS.task_index % FLAGS.num_gpus)
+    worker_device = "/job:worker/task:%d/gpu:%d" % (FLAGS.task_index, gpu)
+  elif FLAGS.num_gpus == 0:
+    # 如果没有 GPU，直接将计算任务分配到 CPU
+    cpu = 0
+    worker_device = "/job:worker/task:%d/cpu:%d" % (FLAGS.task_index, cpu)
 
   # 根据TensorFlow集群的定义和当前设备的信息，放置对应的模型参数和计算操作
   with tf.device(
       tf.train.replica_device_setter(
           worker_device=worker_device,
-          PS_device="/job:PS/cpu:0",
+          ps_device="/job:ps/cpu:0",
           cluster=cluster)):
       global_step = tf.Variable(0, name="global_step", trainable=False)
 
@@ -113,7 +127,7 @@ def main(unused_argv):
     # 如果使用同步训练机制
     if FLAGS.sync_replicas:
       # 如果用户没有输入并行副本数，则令其等于worker任务数
-      if FLAGS.replicas_to_aggregate is None:  
+      if FLAGS.replicas_to_aggregate is None:
         replicas_to_aggregate = num_workers
       # 如果用户输入了并行副本数，则赋值为命令行解析的并行副本数
       else:
@@ -124,9 +138,9 @@ def main(unused_argv):
           replicas_to_aggregate=replicas_to_aggregate,
           total_num_replicas=num_workers,
           name="mnist_sync_replicas")
-	  # 单步训练操作，即利用同步优化器最优化交叉熵
+    # 单步训练操作，即利用同步优化器最优化交叉熵
     train_op = opt.minimize(cross_entropy, global_step=global_step)
-	
+
     # 使用同步训练机制
     if FLAGS.sync_replicas:
       # 其它worker：为local_step设置初始值
@@ -143,8 +157,6 @@ def main(unused_argv):
       sync_init_op = opt.get_init_tokens_op()
     # 定义为全局Variable设置初始值的操作
     init_op = tf.global_variables_initializer()
-    # 判断当前是否为chief worker的任务进程
-    is_chief = (FLAGS.task_index == 0)
 
     # 使用同步训练机制，传入本地初始化相关操作
     if FLAGS.sync_replicas:
@@ -167,11 +179,11 @@ def main(unused_argv):
     # 配置分布式会话：
     #     在没有可用的GPU时，将操作放置到CPU
     #     不打印设备放置信息
-    #     过滤未绑定在PS和worker上的操作
+    #     过滤未绑定在ps和worker上的操作
     sess_config = tf.ConfigProto(
         allow_soft_placement=True,  
         log_device_placement=False, 
-        device_filters=["/job:PS", "/job:worker/task:%d" % FLAGS.task_index]) 
+        device_filters=["/job:ps", "/job:worker/task:%d" % FLAGS.task_index])
 
     # 如果是chief worker，则初始化所有worker的分布式会话
     if is_chief:
@@ -194,7 +206,7 @@ def main(unused_argv):
     # 记录并打印训练开始前的时间
     time_begin = time.time()
     print("Training begins @ %f" % time_begin)
-	  # 将local_step赋值为0
+    # 将local_step赋值为0
     local_step = 0
     while True:
       # 填充训练数据
@@ -203,14 +215,14 @@ def main(unused_argv):
       # 执行单步训练操作
       _, step = sess.run([train_op, global_step], feed_dict=train_feed)
       local_step += 1
-	    # 记录并打印完成当前单步训练所需的时间
+      # 记录并打印完成当前单步训练所需的时间
       now = time.time()
       print("%f: Worker %d: training step %d done (global step: %d)" %
             (now, FLAGS.task_index, local_step, step))
       # 如果当前超过最大训练步数，退出训练循环
       if step >= FLAGS.train_steps:
         break
-	  # 记录并打印训练结束的时间
+    # 记录并打印训练结束的时间
     time_end = time.time()
     print("Training ends @ %f" % time_end)
     # 总训练时间为两者的时间差
