@@ -4,9 +4,9 @@ LABEL_BYTES = 1
 # 图片尺寸为32字节
 IMAGE_SIZE = 32
 # 图片为RGB 3通道
-IMAGE_IMAGE_DEPTH = 3
+IMAGE_DEPTH = 3
 # 图片数据为32x32x3＝3072字节
-IMAGE_BYTES = IMAGE_SIZE * IMAGE_SIZE * IMAGE_IMAGE_DEPTH
+IMAGE_BYTES = IMAGE_SIZE * IMAGE_SIZE * IMAGE_DEPTH
 # 10类标签
 NUM_CLASSES = 10
 
@@ -17,9 +17,8 @@ def read_cifar10(data_file, batch_size):
   输入参数:
     data_file: CIFAR-10数据文件
     batch_size: 批数据大小
-    mode: 训练或测试模式
   返回值:
-    images: 形如[batch_size, image_size, image_size, 3]的图像批数据
+    images: 形如[batch_size, IMAGE_SIZE, IMAGE_SIZE, 3]的图像批数据
     labels: 形如[batch_size，NUM_CLASSES]的标签批数据
   """
   # 单条数据记录大小为1+3072=3073字节
@@ -33,12 +32,12 @@ def read_cifar10(data_file, batch_size):
   _, value = reader.read(file_queue)
   # 将样例拆分为类别标签和图片
   record = tf.reshape(tf.decode_raw(value, tf.uint8), [record_bytes])
-  label = tf.cast(tf.slice(record, [label_bytes]), tf.int32)
+  label = tf.cast(tf.slice(record, [0], [LABEL_BYTES]), tf.int32)
   # 将长度为[depth * height * width]的字符串转换为形如[depth, height, width]的图片张量
-  depth_major = tf.reshape(tf.slice(record, [label_bytes], [image_bytes]),
+  depth_major = tf.reshape(tf.slice(record, [LABEL_BYTES], [IMAGE_BYTES]),
                            [IMAGE_DEPTH, IMAGE_SIZE, IMAGE_SIZE])
   # 改变图片张量各维度顺序，从[depth, height, width]转换为[height, width, depth]
-  image = tf.cast(tf.transpose(IMAGE_DEPTH_major, [1, 2, 0]), tf.float32)
+  image = tf.cast(tf.transpose(depth_major, [1, 2, 0]), tf.float32)
   # 创建样例队列
   example_queue = tf.RandomShuffleQueue(
       capacity=16 * batch_size,
@@ -57,7 +56,7 @@ def read_cifar10(data_file, batch_size):
   labels = tf.reshape(labels, [batch_size, 1])
   indices = tf.reshape(tf.range(0, batch_size, 1), [batch_size, 1])
   labels = tf.sparse_to_dense(
-      tf.concat(values=[0, labels], axis=1),
+      tf.concat(values=[indices, labels], axis=1),
       [batch_size, NUM_CLASSES], 1.0, 0.0)
 
   # 展示images和labels的数据结构
