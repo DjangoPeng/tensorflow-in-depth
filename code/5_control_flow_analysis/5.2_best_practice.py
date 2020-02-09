@@ -69,6 +69,7 @@ def main(unused_argv):
       "ps": ps_spec,
       "worker": worker_spec})
   
+  server = tf.train.Server(cluster, job_name=FLAGS.job_name, task_index=FLAGS.task_index)
   # 如果是ps，直接启动服务，并开始监听worker发起的请求
   if FLAGS.job_name == "ps":
       server.join()
